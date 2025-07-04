@@ -98,11 +98,11 @@ def scan_latest_cmd(update, context):
             if logo:
                 bot.send_photo(chat_id=update.message.chat_id, photo=logo)
             lines.append(
-                f"{i}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M\n"
+                f"{i}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M \n"
                 f"➡️ /down {addr} <price> hoặc /up {addr} <price>"
             )
     update.message.reply_text(
-        "*🆕 Top 5 token mới trên Solana:*\n" + "\n".join(lines),
+        "*🆕 Top 5 token mới trên Solana:*\n" + "\n\n".join(lines),
         parse_mode='Markdown'
     )
 
@@ -176,7 +176,7 @@ def topcap_cmd(update, context):
         for i, (cap, addr, name, symbol, price) in enumerate(tokens[:5])
     ]
     update.message.reply_text(
-        "🏆 *Top FDV Tokens:*\n" + "\n".join(lines),
+        "🏆 *Top FDV Tokens:*\n" + "\n\n".join(lines),
         parse_mode='Markdown'
     )
 
