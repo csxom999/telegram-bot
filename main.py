@@ -251,6 +251,9 @@ for cmd, fn in [
     dp.add_handler(CommandHandler(cmd, fn))
 
 if __name__ == "__main__":
+    # Remove any existing webhook to prevent getUpdates conflict
+    updater.bot.delete_webhook()
+    # Start polling and HTTP health-check server
     # Start polling and HTTP health-check server
     updater.start_polling(drop_pending_updates=True)
     print("🤖 Bot đã sẵn sàng — /down, /up, /remove, /list, /chart, /price, /scan, /topcap")
