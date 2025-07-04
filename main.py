@@ -23,13 +23,12 @@ watchlist = {}
 def help_cmd(update, context):
     return start_cmd(update, context)
 
-
 def start_cmd(update, context):
     update.message.reply_text(
         """👋 *Chào mừng bạn đến với bot theo dõi token Solana!*  
 
 🔻 `/down <pair> <price>` – Cảnh báo khi giá *giảm xuống dưới* mức chỉ định
-🟢 `/up <pair> <price>` – Cảnh báo khi giá *tiệm cận đúng* mức chỉ định
+🟢 `/up <pair> <price>` – Cảnh báo khi giá *tăng lên trên* mức chỉ định
 ❌ `/remove <pair>` – Gỡ token khỏi danh sách theo dõi
 📋 `/list` – Danh sách tất cả các token đang được theo dõi
 📈 `/chart <pair>` – Gửi biểu đồ biến động 60 mẫu gần nhất
@@ -44,9 +43,8 @@ def start_cmd(update, context):
         parse_mode='Markdown'
     )
 
-
+# Fetch token information from Dexscreener
 def get_token_info(pair_addr):
-    """Fetch token info from Dexscreener"""
     url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{pair_addr}"
     try:
         resp = requests.get(url, timeout=10)
@@ -58,12 +56,11 @@ def get_token_info(pair_addr):
         logo = data.get("baseToken", {}).get("iconUrl")
         return name, symbol, price, cap, logo
     except Exception as e:
-        print("⚠️ Lỗi khi gọi Dexscreener:", e)
+        print("⚠️ Error fetching token info:", e)
         return None, None, None, None, None
 
-
+# Get latest token addresses
 def get_latest_pairs(limit=5):
-    """Return list of latest token addresses"""
     url = "https://api.dexscreener.com/token-profiles/latest/v1"
     try:
         resp = requests.get(url, timeout=10)
@@ -71,10 +68,10 @@ def get_latest_pairs(limit=5):
         addrs = [e.get("tokenAddress") for e in data if e.get("chainId") == "solana"]
         return addrs[:limit]
     except Exception as e:
-        print("⚠️ Lỗi get_latest_pairs:", e)
+        print("⚠️ Error fetching latest pairs:", e)
         return []
 
-
+# /scan command
 def scan_latest_cmd(update, context):
     pairs = get_latest_pairs()
     if not pairs:
@@ -86,16 +83,15 @@ def scan_latest_cmd(update, context):
             if logo:
                 bot.send_photo(chat_id=update.message.chat_id, photo=logo)
             lines.append(
-                f"{i}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M"
-                f"\n➡️ /down {addr} <price> hoặc /up {addr} <price>"
+                f"{i}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M\n"
+                f"➡️ /down {addr} <price> hoặc /up {addr} <price>"
             )
     update.message.reply_text(
-        "*🆕 Top 5 token mới trên Solana:*
-" + "\n".join(lines),
+        "*🆕 Top 5 token mới trên Solana:*\n" + "\n".join(lines),
         parse_mode='Markdown'
     )
 
-
+# /down command
 def down_cmd(update, context):
     if len(context.args) != 2:
         return update.message.reply_text("❗ Cú pháp: `/down <pair> <price>`", parse_mode='Markdown')
@@ -123,7 +119,7 @@ def down_cmd(update, context):
         parse_mode='Markdown'
     )
 
-
+# /up command
 def up_cmd(update, context):
     if len(context.args) != 2:
         return update.message.reply_text("❗ Cú pháp: `/up <pair> <price>`", parse_mode='Markdown')
@@ -151,7 +147,7 @@ def up_cmd(update, context):
         parse_mode='Markdown'
     )
 
-
+# /topcap command
 def topcap_cmd(update, context):
     pairs = get_latest_pairs(limit=10)
     tokens = []
@@ -161,13 +157,15 @@ def topcap_cmd(update, context):
             tokens.append((cap, addr, name, symbol, price))
     tokens.sort(reverse=True)
     lines = [
-        f"{i+1}. `{a}` – *{n}* (${s}): `${p:.6f}` | FDV: ${c/1e6:.2f}M"
-        for i, (c, a, n, s, p) in enumerate(tokens[:5])
+        f"{i+1}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M"
+        for i, (cap, addr, name, symbol, price) in enumerate(tokens[:5])
     ]
-    update.message.reply_text("🏆 *Top FDV Tokens:*
-" + "\n".join(lines), parse_mode='Markdown')
+    update.message.reply_text(
+        "🏆 *Top FDV Tokens:*\n" + "\n".join(lines),
+        parse_mode='Markdown'
+    )
 
-
+# /remove command
 def remove_cmd(update, context):
     if not context.args:
         return update.message.reply_text("❗ Cú pháp: `/remove <pair>`", parse_mode='Markdown')
@@ -178,20 +176,24 @@ def remove_cmd(update, context):
     else:
         update.message.reply_text(f"⚠️ Không tìm thấy `{addr}` trong danh sách theo dõi.", parse_mode='Markdown')
 
-
+# /list command
 def list_cmd(update, context):
     if not watchlist:
         return update.message.reply_text("📭 Chưa theo dõi token nào.")
     lines = []
     for i, (addr, info) in enumerate(watchlist.items(), start=1):
         parts = [f"{i}. `{addr}`"]
-        if 'threshold' in info: parts.append(f"🔻≤${info['threshold']}")
-        if 'eq_price' in info: parts.append(f"🟢≈${info['eq_price']}")
+        if 'threshold' in info:
+            parts.append(f"🔻≤${info['threshold']}")
+        if 'eq_price' in info:
+            parts.append(f"🟢≈${info['eq_price']}")
         lines.append(" | ".join(parts))
-    update.message.reply_text("📋 *Danh sách theo dõi:*
-" + "\n".join(lines), parse_mode='Markdown')
+    update.message.reply_text(
+        "📋 *Danh sách theo dõi:*\n" + "\n".join(lines),
+        parse_mode='Markdown'
+    )
 
-
+# /price command
 def price_cmd(update, context):
     if not context.args:
         return update.message.reply_text("❗ Cú pháp: `/price <pair>`", parse_mode='Markdown')
@@ -206,7 +208,7 @@ def price_cmd(update, context):
         parse_mode='Markdown'
     )
 
-
+# /chart command
 def chart_cmd(update, context):
     if not context.args:
         return update.message.reply_text("❗ Cú pháp: `/chart <pair>`", parse_mode='Markdown')
@@ -229,19 +231,18 @@ updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
 dp = updater.dispatcher
 for cmd, fn in [
     ("start", start_cmd), ("help", help_cmd),
-    ("down", down_cmd),   ("up", up_cmd),
+    ("scan", scan_latest_cmd), ("down", down_cmd), ("up", up_cmd),
     ("remove", remove_cmd), ("list", list_cmd),
-    ("chart", chart_cmd), ("price", price_cmd),
-    ("scan", scan_latest_cmd), ("topcap", topcap_cmd),
+    ("chart", chart_cmd), ("price", price_cmd), ("topcap", topcap_cmd),
 ]:
     dp.add_handler(CommandHandler(cmd, fn))
 
 if __name__ == "__main__":
-    # 1) Start polling
+    # Start polling and HTTP health-check server
     updater.start_polling(drop_pending_updates=True)
     print("🤖 Bot đã sẵn sàng — /down, /up, /remove, /list, /chart, /price, /scan, /topcap")
 
-    # 2) Launch a tiny HTTP server for Render health checks
+    # Health-check HTTP server for Render
     class HealthHandler(BaseHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
@@ -254,6 +255,5 @@ if __name__ == "__main__":
         daemon=True
     ).start()
 
-    # 3) Block until interrupted
     updater.idle()
 ```
