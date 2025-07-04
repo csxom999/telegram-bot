@@ -172,7 +172,7 @@ def topcap_cmd(update, context):
             tokens.append((cap, addr, name, symbol, price))
     tokens.sort(reverse=True)
     lines = [
-        f"{i+1}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M"
+        f"{i+1}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M \n"
         for i, (cap, addr, name, symbol, price) in enumerate(tokens[:5])
     ]
     update.message.reply_text(
