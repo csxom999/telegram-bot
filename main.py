@@ -1,4 +1,3 @@
-```python
 import os
 import requests
 import time
@@ -256,4 +255,3 @@ if __name__ == "__main__":
     ).start()
 
     updater.idle()
-```
