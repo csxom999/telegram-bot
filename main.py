@@ -98,7 +98,7 @@ def scan_latest_cmd(update, context):
             if logo:
                 bot.send_photo(chat_id=update.message.chat_id, photo=logo)
             lines.append(
-                f"{i}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M \n"
+                f"{i}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M"
                 f"➡️ /down {addr} <price> hoặc /up {addr} <price>"
             )
     update.message.reply_text(
@@ -172,7 +172,7 @@ def topcap_cmd(update, context):
             tokens.append((cap, addr, name, symbol, price))
     tokens.sort(reverse=True)
     lines = [
-        f"{i+1}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M \n"
+        f"{i+1}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M"
         for i, (cap, addr, name, symbol, price) in enumerate(tokens[:5])
     ]
     update.message.reply_text(
@@ -204,7 +204,7 @@ def list_cmd(update, context):
             parts.append(f"🟢≈${info['eq_price']}")
         lines.append(" | ".join(parts))
     update.message.reply_text(
-        "📋 *Danh sách theo dõi:*\n" + "\n".join(lines),
+        "📋 *Danh sách theo dõi:*\n" + "\n\n".join(lines),
         parse_mode='Markdown'
     )
 
