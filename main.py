@@ -24,7 +24,7 @@ def help_cmd(update, context):
 
 def start_cmd(update, context):
     update.message.reply_text(
-        """👋 *Chào mừng bạn đến với bot theo dõi token Solana!*  
+        """👋 *Chào mừng anh em đến với bot theo dõi token Solana!*  
 
 🔻 `/down <pair> <price>` – Cảnh báo khi giá *giảm xuống dưới* mức chỉ định
 🟢 `/up <pair> <price>` – Cảnh báo khi giá *tăng lên trên* mức chỉ định
@@ -58,14 +58,28 @@ def get_token_info(pair_addr):
         print("⚠️ Error fetching token info:", e)
         return None, None, None, None, None
 
-# Get latest token addresses
+# Get latest token addresses (convert token profiles to pair addresses)
 def get_latest_pairs(limit=5):
-    url = "https://api.dexscreener.com/token-profiles/latest/v1"
+    """Return list of pair addresses for newest tokens on Solana."""
+    profiles_url = "https://api.dexscreener.com/token-profiles/latest/v1"
+    pairs = []
     try:
-        resp = requests.get(url, timeout=10)
-        data = resp.json()
-        addrs = [e.get("tokenAddress") for e in data if e.get("chainId") == "solana"]
-        return addrs[:limit]
+        resp = requests.get(profiles_url, timeout=10)
+        profiles = resp.json()
+        for entry in profiles:
+            if entry.get("chainId") == "solana":
+                token_addr = entry.get("tokenAddress")
+                # fetch pools for this token
+                pools_url = f"https://api.dexscreener.com/token-pairs/v1/solana/{token_addr}"
+                pr = requests.get(pools_url, timeout=10).json()
+                if isinstance(pr, list) and pr:
+                    # take first pool's pairAddress
+                    pair_addr = pr[0].get("pairAddress")
+                    if pair_addr:
+                        pairs.append(pair_addr)
+                if len(pairs) >= limit:
+                    break
+        return pairs[:limit]
     except Exception as e:
         print("⚠️ Error fetching latest pairs:", e)
         return []
