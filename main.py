@@ -1,0 +1,273 @@
+
+import os, requests, time, threading, io
+from datetime import datetime
+from collections import deque
+from telegram import Bot
+from telegram.ext import Updater, CommandHandler
+import matplotlib.pyplot as plt
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
+
+bot = Bot(token=TELEGRAM_TOKEN)
+watchlist = {}
+seen_pairs = set()
+
+def help_cmd(update, context):
+    return start_cmd(update, context)
+
+def start_cmd(update, context):
+    update.message.reply_text(
+        "👋 *Chào mừng bạn đến với bot theo dõi token Solana!*
+
+"
+        "🔻 `/down <pair> <price>` – Cảnh báo khi giá *giảm xuống dưới* mức chỉ định
+"
+        "🟢 `/up <pair> <price>` – Cảnh báo khi giá *tiệm cận đúng* mức chỉ định
+"
+        "❌ `/remove <pair>` – Gỡ token khỏi danh sách theo dõi
+"
+        "📋 `/list` – Danh sách tất cả các token đang được theo dõi
+"
+        "📈 `/chart <pair>` – Gửi biểu đồ biến động 60 mẫu gần nhất
+"
+        "💹 `/price <pair>` – Xem nhanh giá & vốn hóa hiện tại
+"
+        "🧪 `/scan` – Quét nhanh top token mới nhất
+"
+        "📊 `/topcap` – Top token có FDV cao nhất
+
+"
+        "🧪 *Ví dụ sử dụng:*
+"
+        "`/down 5kFuc... 0.0026`
+"
+        "`/up 5kFuc... 0.0030`
+"
+        "`/price 5kFuc...`",
+        parse_mode='Markdown')
+
+def get_token_info(pair_addr):
+    base = "https://api.dexscreener.com/latest/dex/pairs/solana"
+    try:
+        resp = requests.get(f"{base}/{pair_addr}", timeout=10)
+        data = resp.json().get("pair")
+        if data:
+            name = data.get("baseToken", {}).get("name", "Unknown")
+            symbol = data.get("baseToken", {}).get("symbol", "")
+            price = float(data.get("priceUsd", 0))
+            cap = float(data.get("fdv", 0))
+            logo_url = data.get("baseToken", {}).get("iconUrl")
+            return name, symbol, price, cap, logo_url
+    except Exception as e:
+        print("⚠️ Lỗi khi gọi Dexscreener:", e)
+    return None, None, None, None, None
+
+def get_latest_pairs(limit=5):
+    url = "https://api.dexscreener.com/token-profiles/latest/v1"
+    try:
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        new = [entry.get("tokenAddress") for entry in data if entry.get("chainId") == "solana"]
+        return new[:limit]
+    except Exception as e:
+        print("⚠️ Lỗi get_latest_pairs:", e)
+        return []
+
+def scan_latest_cmd(update, context):
+    new_pairs = get_latest_pairs(limit=5)
+    if not new_pairs:
+        return update.message.reply_text("❌ Không tìm thấy pair nào mới.")
+    lines = []
+    for i, addr in enumerate(new_pairs, 1):
+        name, symbol, price, cap, logo_url = get_token_info(addr)
+        if price is not None:
+            if logo_url:
+                bot.send_photo(chat_id=update.message.chat_id, photo=logo_url)
+            lines.append(
+                f"{i}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M
+"
+                f"➡️ /down {addr} <price> hoặc /up {addr} <price>")
+    if lines:
+        update.message.reply_text("*🆕 Top 5 token mới trên Solana:*
+" + "
+".join(lines), parse_mode='Markdown')
+    else:
+        update.message.reply_text("❌ Không lấy được dữ liệu từ các pair mới.")
+
+def down_cmd(update, context):
+    if len(context.args) != 2:
+        return update.message.reply_text("❗ Cú pháp: `/down <pair> <price>`", parse_mode='Markdown')
+    addr, th = context.args
+    try:
+        threshold = float(th)
+    except:
+        return update.message.reply_text("❗ Giá phải là số.", parse_mode='Markdown')
+
+    name, symbol, price, cap, logo_url = get_token_info(addr)
+    if price is None:
+        return update.message.reply_text("❌ Không lấy được dữ liệu.", parse_mode='Markdown')
+
+    entry = watchlist.setdefault(addr, {'warned_le': False, 'threshold': None, 'warned_eq': False, 'eq_price': None, 'history': deque()})
+    entry.update({'threshold': threshold, 'warned_le': False})
+    entry['history'].append((datetime.now().strftime('%H:%M'), price))
+
+    change_percent = ((price - threshold) / threshold) * 100
+    if logo_url:
+        bot.send_photo(chat_id=update.message.chat_id, photo=logo_url)
+
+    message = (
+        f"🔻 *DOWN ALERT*
+"
+        f"[🪙 {name} (${symbol})]
+"
+        f"`{addr}`
+
+"
+        f"💰 *Price:* `${price:.6f}` ({change_percent:.0f}%)
+"
+        f"📍 *Alert Trigger:* `$≤{threshold}`
+"
+        f"💵 *FDV:* `${cap/1e6:.2f}M`"
+    )
+    update.message.reply_text(message, parse_mode='Markdown')
+
+def up_cmd(update, context):
+    if len(context.args) != 2:
+        return update.message.reply_text("❗ Cú pháp: `/up <pair> <price>`", parse_mode='Markdown')
+    addr, th = context.args
+    try:
+        eq = float(th)
+    except:
+        return update.message.reply_text("❗ Giá phải là số.", parse_mode='Markdown')
+
+    name, symbol, price, cap, logo_url = get_token_info(addr)
+    if price is None:
+        return update.message.reply_text("❌ Không lấy được dữ liệu.", parse_mode='Markdown')
+
+    entry = watchlist.setdefault(addr, {'warned_le': False, 'threshold': None, 'warned_eq': False, 'eq_price': None, 'history': deque()})
+    entry.update({'eq_price': eq, 'warned_eq': False})
+    entry['history'].append((datetime.now().strftime('%H:%M'), price))
+
+    change_percent = ((price - eq) / eq) * 100
+    if logo_url:
+        bot.send_photo(chat_id=update.message.chat_id, photo=logo_url)
+
+    message = (
+        f"🟢 *UP ALERT*
+"
+        f"[🪙 {name} (${symbol})]
+"
+        f"`{addr}`
+
+"
+        f"💰 *Price:* `${price:.6f}` ({change_percent:+.0f}%)
+"
+        f"📍 *Alert Trigger:* `$≈{eq}`
+"
+        f"💵 *FDV:* `${cap/1e6:.2f}M`"
+    )
+    update.message.reply_text(message, parse_mode='Markdown')
+
+def topcap_cmd(update, context):
+    new_pairs = get_latest_pairs(limit=10)
+    if not new_pairs:
+        return update.message.reply_text("❌ Không có dữ liệu top FDV.")
+    tokens = []
+    for addr in new_pairs:
+        name, symbol, price, cap, logo_url = get_token_info(addr)
+        if cap and price:
+            tokens.append((cap, addr, name, symbol, price))
+    if not tokens:
+        return update.message.reply_text("❌ Không có dữ liệu top FDV.")
+    tokens.sort(reverse=True)
+    lines = ["🏆 *Top FDV Tokens:*"]
+    for i, (cap, addr, name, symbol, price) in enumerate(tokens[:5], 1):
+        lines.append(f"{i}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M")
+    update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+
+def remove_cmd(update, context):
+    if not context.args:
+        return update.message.reply_text("❗ Cú pháp: `/remove <pair>`", parse_mode='Markdown')
+    addr = context.args[0]
+    if addr in watchlist:
+        del watchlist[addr]
+        update.message.reply_text(f"🗑 Đã gỡ `{addr}` khỏi danh sách theo dõi.", parse_mode='Markdown')
+    else:
+        update.message.reply_text(f"⚠️ Không tìm thấy `{addr}` trong danh sách theo dõi.", parse_mode='Markdown')
+
+def list_cmd(update, context):
+    if not watchlist:
+        return update.message.reply_text("📭 Chưa theo dõi token nào.")
+    lines = ["📋 *Danh sách theo dõi:*"]
+    for i, (addr, info) in enumerate(watchlist.items(), 1):
+        line = f"{i}. `{addr}`"
+        if info.get('threshold') is not None:
+            line += f" | 🔻 ≤${info['threshold']}"
+        if info.get('eq_price') is not None:
+            line += f" | 🟢 ≈${info['eq_price']}"
+        lines.append(line)
+    update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+
+def price_cmd(update, context):
+    if not context.args:
+        return update.message.reply_text("❗ Cú pháp: `/price <pair>`", parse_mode='Markdown')
+    addr = context.args[0]
+    name, symbol, price, cap, logo_url = get_token_info(addr)
+    if price is None:
+        return update.message.reply_text("❌ Không lấy được dữ liệu.", parse_mode='Markdown')
+    if logo_url:
+        bot.send_photo(chat_id=update.message.chat_id, photo=logo_url)
+    update.message.reply_text(
+        f"💹 *Token:* {name} (${symbol})\n"
+        f"🔗 `{addr}`\n\n"
+        f"💰 *Price:* `${price:.6f}`\n"
+        f"💵 *FDV:* `${cap/1e6:.2f}M`",
+        parse_mode='Markdown')
+
+def chart_cmd(update, context):
+    if not context.args:
+        return update.message.reply_text("❗ Cú pháp: `/chart <pair>`", parse_mode='Markdown')
+    addr = context.args[0]
+    info = watchlist.get(addr)
+    if not info or not info['history']:
+        return update.message.reply_text("❌ Chưa có dữ liệu. Hãy `/down` rồi chờ 1 phút.", parse_mode='Markdown')
+    times = [t for t, _ in info['history']]
+    prices = [p for _, p in info['history']]
+    plt.figure(figsize=(6, 3))
+    plt.plot(times, prices, linewidth=2, marker='o')
+    plt.grid(True, linestyle='--', alpha=0.3)
+    plt.xticks(rotation=45, fontsize=8)
+    plt.yticks(fontsize=8)
+    plt.xlabel('🕒 Thời gian', fontsize=9)
+    plt.ylabel('💲 Giá (USD)', fontsize=9)
+    plt.title(f'📈 Biểu đồ: {addr}', fontsize=10)
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    plt.close()
+    update.message.reply_photo(photo=buf, caption=f"🔍 Biểu đồ 60 mẫu `{addr}`", parse_mode='Markdown')
+
+# Khởi động bot
+threading.Thread(target=lambda: time.sleep(1), daemon=True).start()
+updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+dp = updater.dispatcher
+for cmd, fn in [
+    ("start", start_cmd),
+    ("help", help_cmd),
+    ("down", down_cmd),
+    ("up", up_cmd),
+    ("remove", remove_cmd),
+    ("list", list_cmd),
+    ("chart", chart_cmd),
+    ("price", price_cmd),
+    ("scan", scan_latest_cmd),
+    ("topcap", topcap_cmd),
+]:
+    dp.add_handler(CommandHandler(cmd, fn))
+
+updater.bot.delete_webhook()
+updater.start_polling(drop_pending_updates=True)
+print("🤖 Bot đã sẵn sàng — /down, /up, /remove, /list, /chart, /price, /scan, /topcap")
+updater.idle()
