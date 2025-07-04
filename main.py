@@ -16,6 +16,8 @@ ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
 
 # Initialize bot and state
 bot = Bot(token=TELEGRAM_TOKEN)
+# Immediately remove any existing webhook to avoid conflicts
+bot.delete_webhook(drop_pending_updates=True)
 watchlist = {}
 
 # Command handlers
@@ -24,7 +26,7 @@ def help_cmd(update, context):
 
 def start_cmd(update, context):
     update.message.reply_text(
-        """👋 *Chào mừng anh em đến với bot theo dõi token Solana!*  
+        """👋 *Chào mừng bạn đến với bot theo dõi token Solana!*  
 
 🔻 `/down <pair> <price>` – Cảnh báo khi giá *giảm xuống dưới* mức chỉ định
 🟢 `/up <pair> <price>` – Cảnh báo khi giá *tăng lên trên* mức chỉ định
