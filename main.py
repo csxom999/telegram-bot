@@ -1,4 +1,3 @@
-[media pointer="file-service://file-GGF2GFqrrkS5RNWwcyonBN"]
 import os
 import requests
 import time
