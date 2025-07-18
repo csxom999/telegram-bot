@@ -9,14 +9,30 @@ from telegram import Bot
 from telegram.ext import Updater, CommandHandler
 import matplotlib.pyplot as plt
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from telegram.utils.request import Request
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
+
+# Custom request class with retry logic
+class CustomRequest(Request):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        retry_strategy = Retry(
+            total=5,
+            backoff_factor=1,
+            status_forcelist=[429, 502, 503, 504]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
 
 # Environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
 
 # Initialize bot and state
-bot = Bot(token=TELEGRAM_TOKEN)
-# Immediately remove any existing webhook to avoid conflicts
+request = CustomRequest()
+bot = Bot(token=TELEGRAM_TOKEN, request=request)
 bot.delete_webhook(drop_pending_updates=True)
 watchlist = {}
 
@@ -28,23 +44,22 @@ def start_cmd(update, context):
     update.message.reply_text(
         """👋 *Chào mừng bạn đến với bot theo dõi token Solana!*  
 
-🔻 `/down <pair> <price>` – Cảnh báo khi giá *giảm xuống dưới* mức chỉ định
-🟢 `/up <pair> <price>` – Cảnh báo khi giá *tăng lên trên* mức chỉ định
-❌ `/remove <pair>` – Gỡ token khỏi danh sách theo dõi
-📋 `/list` – Danh sách tất cả các token đang được theo dõi
-📈 `/chart <pair>` – Gửi biểu đồ biến động 60 mẫu gần nhất
-💹 `/price <pair>` – Xem nhanh giá & vốn hóa hiện tại
-🧪 `/scan` – Quét nhanh top token mới nhất
-📊 `/topcap` – Top token có FDV cao nhất
+🔻 `/down <pair> <price>` – Cảnh báo khi giá *giảm xuống dưới* mức chỉ định  
+🟢 `/up <pair> <price>` – Cảnh báo khi giá *tăng lên trên* mức chỉ định  
+❌ `/remove <pair>` – Gỡ token khỏi danh sách theo dõi  
+📋 `/list` – Danh sách tất cả các token đang được theo dõi  
+📈 `/chart <pair>` – Gửi biểu đồ biến động 60 mẫu gần nhất  
+💹 `/price <pair>` – Xem nhanh giá & vốn hóa hiện tại  
+🧪 `/scan` – Quét nhanh top token mới nhất  
+📊 `/topcap` – Top token có FDV cao nhất  
 
-🧪 *Ví dụ sử dụng:*
-`/down 5kFuc... 0.0026`
-`/up 5kFuc... 0.0030`
+🧪 *Ví dụ sử dụng:*  
+`/down 5kFuc... 0.0026`  
+`/up 5kFuc... 0.0030`  
 `/price 5kFuc...`""",
         parse_mode='Markdown'
     )
 
-# Fetch token information from Dexscreener
 def get_token_info(pair_addr):
     url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{pair_addr}"
     try:
@@ -60,9 +75,7 @@ def get_token_info(pair_addr):
         print("⚠️ Error fetching token info:", e)
         return None, None, None, None, None
 
-# Get latest token addresses (convert token profiles to pair addresses)
 def get_latest_pairs(limit=5):
-    """Return list of pair addresses for newest tokens on Solana."""
     profiles_url = "https://api.dexscreener.com/token-profiles/latest/v1"
     pairs = []
     try:
@@ -71,11 +84,9 @@ def get_latest_pairs(limit=5):
         for entry in profiles:
             if entry.get("chainId") == "solana":
                 token_addr = entry.get("tokenAddress")
-                # fetch pools for this token
                 pools_url = f"https://api.dexscreener.com/token-pairs/v1/solana/{token_addr}"
                 pr = requests.get(pools_url, timeout=10).json()
                 if isinstance(pr, list) and pr:
-                    # take first pool's pairAddress
                     pair_addr = pr[0].get("pairAddress")
                     if pair_addr:
                         pairs.append(pair_addr)
@@ -86,7 +97,6 @@ def get_latest_pairs(limit=5):
         print("⚠️ Error fetching latest pairs:", e)
         return []
 
-# /scan command
 def scan_latest_cmd(update, context):
     pairs = get_latest_pairs()
     if not pairs:
@@ -99,14 +109,13 @@ def scan_latest_cmd(update, context):
                 bot.send_photo(chat_id=update.message.chat_id, photo=logo)
             lines.append(
                 f"{i}. `{addr}` – *{name}* (${symbol}): `${price:.6f}` | FDV: ${cap/1e6:.2f}M"
-                f"➡️ /down {addr} <price> hoặc /up {addr} <price>"
+                f" ➡️ /down {addr} <price> hoặc /up {addr} <price>"
             )
     update.message.reply_text(
         "*🆕 Top 5 token mới trên Solana:*\n" + "\n\n".join(lines),
         parse_mode='Markdown'
     )
 
-# /down command
 def down_cmd(update, context):
     if len(context.args) != 2:
         return update.message.reply_text("❗ Cú pháp: `/down <pair> <price>`", parse_mode='Markdown')
@@ -134,7 +143,6 @@ def down_cmd(update, context):
         parse_mode='Markdown'
     )
 
-# /up command
 def up_cmd(update, context):
     if len(context.args) != 2:
         return update.message.reply_text("❗ Cú pháp: `/up <pair> <price>`", parse_mode='Markdown')
@@ -162,7 +170,6 @@ def up_cmd(update, context):
         parse_mode='Markdown'
     )
 
-# /topcap command
 def topcap_cmd(update, context):
     pairs = get_latest_pairs(limit=10)
     tokens = []
@@ -180,7 +187,6 @@ def topcap_cmd(update, context):
         parse_mode='Markdown'
     )
 
-# /remove command
 def remove_cmd(update, context):
     if not context.args:
         return update.message.reply_text("❗ Cú pháp: `/remove <pair>`", parse_mode='Markdown')
@@ -191,7 +197,6 @@ def remove_cmd(update, context):
     else:
         update.message.reply_text(f"⚠️ Không tìm thấy `{addr}` trong danh sách theo dõi.", parse_mode='Markdown')
 
-# /list command
 def list_cmd(update, context):
     if not watchlist:
         return update.message.reply_text("📭 Chưa theo dõi token nào.")
@@ -208,7 +213,6 @@ def list_cmd(update, context):
         parse_mode='Markdown'
     )
 
-# /price command
 def price_cmd(update, context):
     if not context.args:
         return update.message.reply_text("❗ Cú pháp: `/price <pair>`", parse_mode='Markdown')
@@ -223,7 +227,6 @@ def price_cmd(update, context):
         parse_mode='Markdown'
     )
 
-# /chart command
 def chart_cmd(update, context):
     if not context.args:
         return update.message.reply_text("❗ Cú pháp: `/chart <pair>`", parse_mode='Markdown')
@@ -242,7 +245,7 @@ def chart_cmd(update, context):
     update.message.reply_photo(photo=buf, caption=f"🔍 Biểu đồ 60 mẫu `{addr}`", parse_mode='Markdown')
 
 # Setup Telegram handlers
-updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+updater = Updater(bot=bot, use_context=True)
 dp = updater.dispatcher
 for cmd, fn in [
     ("start", start_cmd), ("help", help_cmd),
@@ -253,14 +256,10 @@ for cmd, fn in [
     dp.add_handler(CommandHandler(cmd, fn))
 
 if __name__ == "__main__":
-    # Remove any existing webhook to prevent getUpdates conflict
     updater.bot.delete_webhook()
-    # Start polling and HTTP health-check server
-    # Start polling and HTTP health-check server
     updater.start_polling(drop_pending_updates=True)
     print("🤖 Bot đã sẵn sàng — /down, /up, /remove, /list, /chart, /price, /scan, /topcap")
 
-    # Health-check HTTP server for Render
     class HealthHandler(BaseHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
@@ -274,3 +273,4 @@ if __name__ == "__main__":
     ).start()
 
     updater.idle()
+
