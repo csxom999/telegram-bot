@@ -273,4 +273,4 @@ if __name__ == "__main__":
         daemon=True
     ).start()
 
-    updater.idle() sửa lại giúp tôi chỗ cần sửa 
+    updater.idle()
